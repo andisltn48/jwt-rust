@@ -1,8 +1,11 @@
-use std::env;
+mod routes;
 
+use std::env;
 use actix_web::{middleware::Logger, App, HttpServer};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use dotenv::dotenv;
+
+use routes::health_route;
 
 pub struct AppState {
     db_pool: Pool<Postgres>
@@ -34,7 +37,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     println!("🚀 Starting server at http://localhost:8080");
-    
+
     HttpServer::new(move || {
         let cors = actix_cors::Cors::default()
             .allowed_origin("http://localhost:3000")
@@ -48,6 +51,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(actix_web::web::Data::new(AppState { db_pool: db_pool.clone() }))
+            .service(health_route::health_checker_handler)
             .wrap(cors)
             .wrap(Logger::default())
     })
