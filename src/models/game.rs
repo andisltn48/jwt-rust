@@ -1,3 +1,7 @@
+use serde::{Deserialize, Serialize};
+use sqlx::prelude::FromRow;
+use uuid::Uuid;
+
 
 
 #[derive(Debug, FromRow, Deserialize, Serialize)]
@@ -6,23 +10,23 @@ pub struct GameModel {
     pub id: Uuid,
     pub field_name: String,
     pub address: String,
-    pub date: chrono::DateTime<chrono::Utc>,
+    pub day: String,
+    // #[serde(rename = "createdAt")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    // #[serde(rename = "updatedAt")]
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize)]
-#[allow(non_snake_case)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CreateFieldSchema {
     pub field_name: String,
     pub address: String,
-    pub date: chrono::DateTime<chrono::Utc>
+    pub day: String
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize)]
-#[allow(non_snake_case)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct UpdateFieldSchema {
-    pub field_name: String,
-    pub address: String,
-    pub date: chrono::DateTime<chrono::Utc>
+    pub field_name: Option<String>,
+    pub address: Option<String>,
+    pub day: Option<String>
 }

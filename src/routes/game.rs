@@ -1,19 +1,138 @@
+use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use chrono::Utc;
+use serde_json::json;
+use crate::AppState;
+use crate::models::game::{CreateFieldSchema, GameModel, UpdateFieldSchema};
 
 
-#[get("/api/games")]
+
+#[get("/games")]
 pub async fn get_games(data: web::Data<AppState>) -> impl Responder {
-    let games = sqlx::query_as!(
+    let query_result = sqlx::query_as!(
         GameModel,
-        "SELECT * FROM games ORDER BY id ASC"
+        "SELECT * FROM games ORDER by id ASC"
     )
-    .fetch_all(&data.db())
+    .fetch_all(&data.db_pool)
     .await;
-    
-    if let Ok(games) = games {
-        let games = games.unwrap();
 
-        let response = serde_json::json!({"status": "success", "data": {"games": games}});
-        return HttpResponse::Ok().json(response);
+    if query_result.is_err() {
+        let message: &str = "Something bad happened while fetching the games";
+        return HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": message}))
     }
-    return HttpResponse::InternalServerError().json(json!("Internal server error: {}",));
+
+    let games = query_result.unwrap();
+
+    HttpResponse::Ok().json(json!({
+        "data": games
+    }))
+}
+
+#[post("/games")]
+pub async fn create_game(request: web::Json<CreateFieldSchema>, game: web::Data<AppState>) -> impl Responder {
+    let created_game = sqlx::query_as!(
+        GameModel,
+        "INSERT into games (field_name, address, day) values ($1, $2, $3) returning *",
+        request.field_name.to_string(),
+        request.address.to_string(),
+        request.day.to_string()
+    )
+    .fetch_one(&game.db_pool)
+    .await;
+
+    match created_game {
+        Ok(created_game) => {
+            let response = serde_json::json!({"status": "success", "data": {"games": created_game}});
+            return HttpResponse::Ok().json(response);
+        },
+        Err(e) => {
+            if e.to_string().contains("duplicate key value violates unique constraint") {
+                return HttpResponse::BadRequest()
+                .json(serde_json::json!({"status": "fail", "message": "Duplicate Key"}))
+            }
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"status": "error", "message": format!("{:?}", e)}));
+        } 
+    }
+}
+#[get("/games/game/{id}")]
+async fn get_game_by_id(path: web::Path<uuid::Uuid>, data: web::Data<AppState>) -> impl Responder {
+    let game_id = path.into_inner();
+    let query_result = sqlx::query_as!(GameModel, "SELECT * FROM games WHERE id = $1", game_id)
+        .fetch_one(&data.db_pool)
+        .await;
+
+    match query_result {
+        Ok(game) => {
+            let game_response = serde_json::json!({"status": "success", "data": serde_json::json!({
+                "game": game
+            })});
+            return HttpResponse::Ok().json(game_response);
+        }
+        Err(_) => {
+            let message = format!("Game with ID: {} not found", game_id);
+            return HttpResponse::NotFound()
+                .json(serde_json::json!({"status": "fail", "message": message}));
+        }
+    }
+}
+
+#[put("/games/game/{id}")]
+async fn update_game(path: web::Path<uuid::Uuid>, data: web::Data<AppState>, body: web::Json<UpdateFieldSchema>) -> impl Responder {
+    let game_id = path.into_inner();
+    // make sure game exists before updating
+    let query_result = sqlx::query_as!(GameModel, "SELECT * FROM games where id = $1", game_id)
+        .fetch_one(&data.db_pool)
+        .await;
+
+    if query_result.is_err() {
+        let message = format!("Game with ID: {} not found", game_id);
+        return HttpResponse::NotFound()
+            .json(serde_json::json!({"status": "fail", "message": message}));
+    }
+
+    let now = Utc::now();
+    let game = query_result.unwrap();
+
+    let query_result = sqlx::query_as!(
+        GameModel,
+        "UPDATE games set field_name = $1, address = $2, day = $3, updated_at = $4 where id = $5 returning *",
+        body.field_name.to_owned().unwrap_or(game.field_name),
+        body.address.to_owned().unwrap_or(game.address),
+        body.day.to_owned().unwrap_or(game.day),
+        now,
+        game_id
+    )
+    .fetch_one(&data.db_pool)
+    .await;
+
+    match query_result {
+        Ok(game) => {
+            let game_response = serde_json::json!({"state": "success", "data": serde_json::json!({
+                "game": game
+            })});
+            return HttpResponse::Ok().json(game_response);
+        }
+        Err (_) => {
+            let message = format!("Game with ID: {} not found", game_id);
+            return HttpResponse::NotFound()
+                .json(serde_json::json!({"status": "fail", "message": message}))
+        }
+    }
+}
+
+#[delete("/games/game/{id}")]
+async fn delete_game(path: web::Path<uuid::Uuid>, data: web::Data<AppState>) -> impl Responder {
+    let game_id = path.into_inner();
+    let rows_affected = sqlx::query!("DELETE from games WHERE id = $1", game_id)
+        .execute(&data.db_pool)
+        .await
+        .unwrap()
+        .rows_affected();
+
+    if rows_affected == 0 {
+        let message = format!("Game with ID: {} not found", game_id);
+        return HttpResponse::NotFound().json(json!({"status": "fail", "message": message}))
+    }
+    HttpResponse::NoContent().finish()
 }
